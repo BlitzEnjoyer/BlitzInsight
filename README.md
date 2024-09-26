@@ -27,6 +27,7 @@ Ensure that the following are installed on your system:
 4. **Change the game files:**
 
 This is essential to work. To access local files - Right-click World of Tanks Blitz in the list of games in the Steam client, then select the "Manage" item in the context menu and then "Browse local files"
+Files are located in **RES** folder
    1. Insert **WarHeliosCondCBoldA** to \World of Tanks Blitz\Data\Fonts folder.
    2. Insert **FontsFs** to \World of Tanks Blitz\Data\UI\Screens folder.
    3. Insert **BattleLoadingScreen** to \World of Tanks Blitz\Data\UI\Screens\Battle folder.
