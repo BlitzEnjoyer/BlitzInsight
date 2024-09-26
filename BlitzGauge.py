@@ -54,8 +54,8 @@ def perform_ocr_on_screenshot(screenshot_path):
     clear_gui()
     img = Image.open(screenshot_path)
 
-    left1, top1, right1, bottom1 = 450, 320, 720, 620
-    left2, top2, right2, bottom2 = 1145, 320, 1470, 620
+    left1, top1, right1, bottom1 = 450, 320, 730, 620
+    left2, top2, right2, bottom2 = 1140, 320, 1470, 620
     img_cropped1 = img.crop((left1, top1, right1, bottom1))
     img_cropped1.save('cropped1.png')
     img_cropped2 = img.crop((left2, top2, right2, bottom2))
