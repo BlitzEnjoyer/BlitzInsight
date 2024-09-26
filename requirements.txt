@@ -21,3 +21,4 @@ pyyaml
 requests
 albumentations==1.4.10
 setuptools
+pyautogui==0.9.54
