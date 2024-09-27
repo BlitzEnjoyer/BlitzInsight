@@ -191,7 +191,13 @@ def get_player_id(nick):
         player_id = None
         print(e)
 
+def hide_gui():
+    root.withdraw()
+    window2.withdraw()
 
+def show_gui():
+    root.deiconify()
+    window2.deiconify()
 def get_player_stat(nick):
         ID = get_player_id(nick)
         print(ID)
@@ -262,6 +268,7 @@ def check_for_image_and_capture():
 
             if found_image is not None:
                 print("Image found, waiting for it to disappear")
+                show_gui()
                 while True:
                     time.sleep(0.25)
                     try:
@@ -274,6 +281,7 @@ def check_for_image_and_capture():
                         screenshot_path = screenshot_folder / f"screenshot_{timestamp}.png"
                         pyautogui.screenshot(screenshot_path)
                         perform_ocr_on_screenshot(screenshot_path)
+                        root.after(40000, hide_gui)
                         break
 
             time.sleep(0.5)
