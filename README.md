@@ -38,6 +38,17 @@ Files are located in **RES** folder
    ```bash
    py BlitzGauge.py
 - You can close the script pressing the **Numpad Add** key.
+- For 10vs10 battles, modify the config.ini file.
+
+
+# Changelog 
+
+## What's new in v0.3
+
+- Brand-new GUI with transparency and new colors
+- Now works in 10vs10 mode
+- Added config file to change region and battle mode
+
 
 ## What's new in v0.2
 
@@ -49,14 +60,16 @@ Files are located in **RES** folder
 
 ## Known Issues
 
-- BlitzGauge is in alpha development.
+- The mod crashes when player exits battle search screen, instead of loading into battle
 - Currently, the software only supports a resolution of **1920x1080**.
-- Script lookups for EU server players. If you want to change the server, modify the 23rd line 
+
 
 
 ## Notice
 
-I would like to thank BlitzStars very much <3. Without it, this project would not have happened
+I would like to thank BlitzStars very much <3. Without it, this project would not have happened 
+
+Thanks to u/limejello99 for inspiration and advice <3
 
 ## Contact
 
