@@ -1,12 +1,12 @@
 # BlitzGauge
 
 ## Description
-Stats for WOT Blitz. PC only.
+Stats for WOT Blitz, Steam version.
 
 ## Prerequisites
 Ensure that the following are installed on your system:
 
-- **Python 3.x**: [Download Python](https://www.python.org/downloads/)
+- **Python 3.12**: [Download Python](https://www.python.org/downloads/) **Do not use the latest Python 3.13, it won't work for now**
 - **pip**: Python package installer (comes with Python)
 - **(Optional)** **Software for screenshots management**: For example, [Greenshot](https://getgreenshot.org). Screenshots should be saved to the **screenshotsmanual** folder within the project directory.
 
