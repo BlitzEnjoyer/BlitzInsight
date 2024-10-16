@@ -9,9 +9,6 @@ import time
 from pathlib import Path
 import re
 from datetime import datetime
-from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from paddleocr import PaddleOCR
 import json
 import requests
@@ -23,17 +20,90 @@ from watchdog.observers import Observer
 import configparser
 
 
+
 model_path = r"ch_PP-OCRv4_rec_server_infer"
 ocr = PaddleOCR(rec_model_dir=model_path, det_db_score_mode='slow')
 values = []
 values2 = []
+api_call_count = 0
+with open('tankaverages.json', 'r') as file:
+    tank_avg_file = json.load(file)
 
-chrome_options = Options()
-chrome_options.add_argument("--headless")
-chrome_options.add_argument("--disable-gpu")
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
-dr = webdriver.Chrome(options=chrome_options)
+tank_avg = [
+    {
+        "tank_id": tank["tank_id"],
+        "winrate_avg": tank["special"]["winrate"],
+        "damagePerBattle_avg": tank["special"]["damagePerBattle"],
+        "killsPerBattle_avg": tank["special"]["killsPerBattle"],
+        "spotsPerBattle_avg": tank["special"]["spotsPerBattle"],
+        "dropped_capture_points_avg": tank["all"]["dropped_capture_points"] / tank["all"]["battles"]
+    }
+    for tank in tank_avg_file
+]
+
+
+def getPlayerTanksData(playerID):
+    url = f"https://api.wotblitz.{region}/wotb/tanks/stats/?application_id=e8ed145797b5db58934cc1bb98a2bc6a&account_id={playerID}"
+    start_time = time.time()
+    response = requests.get(url)
+    res = json.loads(response.content)
+    tanks_data = [
+        {
+            "tank_id": tank["tank_id"],
+            "battles": tank["all"]["battles"],
+            "damage_dealt_avg": tank["all"]["damage_dealt"] / tank["all"]["battles"] if tank["all"]["damage_dealt"] > 0 else 0,
+            "spotted_avg": tank["all"]["spotted"] / tank["all"]["battles"] if tank["all"]["spotted"] > 0 else 0,
+            "dropped_capture_points_avg": tank["all"]["dropped_capture_points"] / tank["all"]["battles"] if tank["all"]["dropped_capture_points"] > 0 else 0,
+            "frags_avg": tank["all"]["frags"] / tank["all"]["battles"] if tank["all"]["frags"] > 0 else 0,
+            "winrate": (tank["all"]["wins"] / tank["all"]["battles"]) * 100 if tank["all"]["battles"] > 0 else 0
+        }
+        for tank in res["data"][str(playerID)]
+    ]
+    end_time = time.time()
+    print(f"getPlayerTanksData executed in {end_time - start_time:.4f} seconds")
+    return tanks_data
+
+def calcWN8(tankid, tanks_data):
+    tankid = int(tankid)
+    tank_data = next((tank for tank in tanks_data if tank["tank_id"] == tankid), None)
+    tank_avg_data = next((tank for tank in tank_avg if tank["tank_id"] == tankid), None)
+    if tank_data is None:
+        print(f"Warning: No data found for tank ID {tankid} in player data.")
+        return 0, tankid, 0, 0
+
+    if tank_avg_data is None:
+        print(f"Warning: No average data found for tank ID {tankid}.")
+        return 0, tankid, 0, 0
+    tankBattles = tank_data["battles"]
+    tankwinrate = tank_data["winrate"]
+
+    rDAMAGE = tank_data["damage_dealt_avg"] / tank_avg_data["damagePerBattle_avg"]
+    rSPOT = tank_data["spotted_avg"] / tank_avg_data["spotsPerBattle_avg"]
+    rFRAG = tank_data["frags_avg"] / tank_avg_data["killsPerBattle_avg"]
+    rDEF = tank_data["dropped_capture_points_avg"] / tank_avg_data["dropped_capture_points_avg"]
+    rWIN = tank_data["winrate"] / tank_avg_data["winrate_avg"]
+    rWINc = max(0, (rWIN - 0.71) / (1 - 0.71))
+    rDAMAGEc = max(0, (rDAMAGE - 0.22) / (1 - 0.22))
+    rFRAGc = max(0, min(rDAMAGEc + 0.2, (rFRAG - 0.12) / (1 - 0.12)))
+    rSPOTc = max(0, min(rDAMAGEc + 0.1, (rSPOT - 0.38) / (1 - 0.38)))
+    rDEFc = max(0, min(rDAMAGEc + 0.1, (rDEF - 0.10) / (1 - 0.10)))
+    WN8 = 980 * rDAMAGEc + 210 * rDAMAGEc * rFRAGc + 155 * rFRAGc * rSPOTc + 75 * rDEFc * rFRAGc + 145 * min(1.8, rWINc)
+    return WN8, tankid, tankBattles, tankwinrate
+
+def playerWN8(player_id):
+    tanks_data = getPlayerTanksData(player_id)
+
+    wn8all, battlesall, winrateall = 0, 0, 0
+    for tank in tanks_data:
+        stats = calcWN8(tank["tank_id"], tanks_data)
+        wn8all += stats[0] * stats[2]
+        winrateall += stats[3] * stats[2]
+        battlesall += stats[2]
+
+    playerWN8 = wn8all / battlesall if battlesall > 0 else 0
+    playerWinrate = winrateall / battlesall if battlesall > 0 else 0
+    stats = round(playerWN8), round(playerWinrate), battlesall
+    return stats
 
 
 def close_script():
@@ -100,7 +170,11 @@ class TransparentWindow(QWidget):
         self.layout2.setRowStretch(0, 0)
 
         for i, row_values in enumerate(values):
-            for j, number in enumerate(row_values):
+            if len(row_values) == 4:
+                from_period = row_values[3]
+            else:
+                from_period = False
+            for j, number in enumerate(row_values[:3]):
                 index = i * 3 + j
                 if index >= len(self.entries1):
                     entry = QLineEdit(self)
@@ -108,15 +182,19 @@ class TransparentWindow(QWidget):
                     entry.setFont(self.custom_font)
                     entry.setFixedSize(80, 22)
                     entry.setStyleSheet("background: transparent; border: none;")
-                    self.update_entry_color(entry, j)
+                    self.update_entry_color(entry, j, from_period)
                     self.layout1.addWidget(entry, i, j, alignment=Qt.AlignTop)
                     self.entries1.append(entry)
                 else:
                     self.entries1[index].setText(str(number))
-                    self.update_entry_color(self.entries1[index], j)
+                    self.update_entry_color(self.entries1[index], j, from_period)
 
         for i, row_values in enumerate(values2):
-            for j, number in enumerate(row_values):
+            if len(row_values) == 4:
+                from_period = row_values[3]
+            else:
+                from_period = False
+            for j, number in enumerate(row_values[:3]):
                 index = i * 3 + j
                 if index >= len(self.entries2):
                     entry = QLineEdit(self)
@@ -124,68 +202,69 @@ class TransparentWindow(QWidget):
                     entry.setFixedSize(80, 22)
                     entry.setFont(self.custom_font)
                     entry.setStyleSheet("background: transparent; border: none; color: white;")
-                    self.update_entry_color(entry, j)
+                    self.update_entry_color(entry, j, from_period)
                     self.layout2.addWidget(entry, i, j, alignment=Qt.AlignTop)
                     self.entries2.append(entry)
                 else:
                     self.entries2[index].setText(str(number))
-                    self.update_entry_color(self.entries2[index], j)
+                    self.update_entry_color(self.entries2[index], j, from_period)
 
         self.layout1.setRowStretch(len(values), 1)
         self.layout2.setRowStretch(len(values2), 1)
 
-    def update_entry_color(self, entry, column):
+    def update_entry_color(self, entry, column, from_period):
         try:
             value = int(entry.text())
+            border_style = "border: 1px solid red;" if from_period else "border: none;"
             if column == 0:
-                if value < 300:
-                    entry.setStyleSheet("background-color: transparent; color: #940D0D;border: none;")
+                if value <= 300:
+                    entry.setStyleSheet(f"background-color: transparent; color: #940D0D;{border_style}")
                 elif 300 <= value <= 449:
-                    entry.setStyleSheet("background-color: transparent; color: #CD3232;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #CD3232;{border_style}")
                 elif 450 <= value <= 650:
-                    entry.setStyleSheet("background-color: transparent; color: #CD7A00;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #CD7A00;{border_style}")
                 elif 651 <= value <= 899:
-                    entry.setStyleSheet("background-color: transparent; color: #CCB800;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #CCB800;{border_style}")
                 elif 900 <= value <= 1199:
-                    entry.setStyleSheet("background-color: transparent; color: #839C24;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #839C24;{border_style}")
                 elif 1200 <= value <= 1599:
-                    entry.setStyleSheet("background-color: transparent; color: #4E7327;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #4E7327;{border_style}")
                 elif 1600 <= value <= 1999:
-                    entry.setStyleSheet("background-color: transparent; color: #3F99BF;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #3F99BF;{border_style}")
                 elif 2000 <= value <= 2449:
-                    entry.setStyleSheet("background-color: transparent; color: #3A73C6;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #3A73C6;{border_style}")
                 elif 2450 <= value <= 2899:
-                    entry.setStyleSheet("background-color: transparent; color: #7A3DB6;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #7A3DB6;{border_style}")
                 elif value >= 2900:
-                    entry.setStyleSheet("background-color: transparent; color: #6526a3;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #6526a3;{border_style}")
                 else:
                     entry.setStyleSheet("background-color: transparent; color: black;")
 
             elif column == 1:
-                if value < 45:
-                    entry.setStyleSheet("background-color: transparent; color: #d10a0a;border: none;")
+                if value <= 45:
+                    entry.setStyleSheet(f"background-color: transparent; color: #d10a0a;{border_style}")
                 elif 45 <= value <= 49:
-                    entry.setStyleSheet("background-color: transparent; color: #dbaf0f;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #dbaf0f;{border_style}")
                 elif 50 <= value <= 55:
-                    entry.setStyleSheet("background-color: transparent; color: #79f00a;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #79f00a;{border_style}")
                 elif 56 <= value <= 60:
-                    entry.setStyleSheet("background-color: transparent; color: #3A73C6;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #3A73C6;{border_style}")
                 elif 61 <= value <= 64:
-                    entry.setStyleSheet("background-color: transparent; color: #7A3DB6;border: none;")
-                elif value > 65:
-                    entry.setStyleSheet("background-color: transparent; color: #6526a3;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #7A3DB6;{border_style}")
+                elif value >= 65:
+                    entry.setStyleSheet(f"background-color: transparent; color: #6526a3;{border_style}")
                 else:
                     entry.setStyleSheet("background-color: white; color: black;")
 
             elif column == 2:
-                if value < 1000:
-                    entry.setStyleSheet("background-color: transparent; color: #e6501e;border: none;")
+                if value <= 1000:
+                    entry.setStyleSheet(f"background-color: transparent; color: #e6501e;{border_style}")
                 elif 1000 <= value <= 5000:
-                    entry.setStyleSheet("background-color: transparent; color: #e6cb1e;border: none;")
-                elif value > 5000:
-                    entry.setStyleSheet("background-color: transparent; color: #85e80c;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: #e6cb1e;{border_style}")
+                elif value >= 5000:
+                    entry.setStyleSheet(f"background-color: transparent; color: #85e80c;{border_style}")
                 else:
-                    entry.setStyleSheet("background-color: transparent; color: black;border: none;")
+                    entry.setStyleSheet(f"background-color: transparent; color: black;{border_style}")
         except ValueError:
             entry.setStyleSheet("background-color: transparent; color: black;")
 
@@ -212,6 +291,8 @@ def clear_gui():
 
 def perform_ocr_on_screenshot(screenshot_path):
     clear_gui()
+    timer = threading.Timer(timerconf, clear_gui)
+    timer.start()
     img = Image.open(screenshot_path)
     left1, top1, right1, bottom1 = 450, 320, 760, 620
     left2, top2, right2, bottom2 = 1125, 320, 1470, 620
@@ -280,36 +361,24 @@ def get_player_stat(nick):
     data = {'memberIds': f'{ID}'}
     response = requests.post(url, data=data)
     res = json.loads(response.content)
-    print(res)
-    if len(res) != 0 and response.status_code != 500:
-        winPercent = math.trunc(res[0]['statistics']['special']['winrate'])
-        battles = res[0]['statistics']['all']['battles']
-        wn8 = math.trunc(res[0]['statistics']['wn8'])
-        stat_list = [wn8, winPercent, battles]
+    if len(res) != 0 and response.status_code != 500 and res[0].get('period90d') != None and res[0]['period90d']['all']['battles'] >= 30:
+        winPercent = math.trunc(res[0]['period90d']['special']['winrate'])
+        battles = res[0]['period90d']['all']['battles']
+        wn8 = math.trunc(res[0]['period90d']['wn8'])
+        stat_list = [wn8, winPercent, battles, True]
         if len(values) < numberofplayers:
             values.append(stat_list)
         else:
             values2.append(stat_list)
     elif ID is None:
-        stat_list = [0, 0, 0]
+        stat_list = [0, 0, 0, False]
         if len(values) < numberofplayers:
             values.append(stat_list)
         else:
             values2.append(stat_list)
     else:
-        url2 = f"https://www.blitzstars.com/player/{region}/{nick}"
-        dr.get(url2)
-        time.sleep(1)
-        bs = BeautifulSoup(dr.page_source, 'html.parser')
-        mydivs = bs.find_all("div", "wn8-span")
-        mywins = bs.find_all("p", "ps-cell ps-c ng-binding")
-        wn8 = mydivs[4].get_text()
-        wn8_clear = re.sub(r'\D', '', wn8)
-        winPercent = mywins[0].get_text()
-        winPercent = winPercent[:-5]
-        battleCount = mywins[2].get_text()
-        battle_count_clear = re.sub(r'\D', '', battleCount)
-        stat_list = [wn8_clear, winPercent, battle_count_clear]
+        stat_list = playerWN8(ID)
+        stat_list = stat_list + (False,)
         if len(values) < numberofplayers:
             values.append(stat_list)
         else:
@@ -350,10 +419,9 @@ def check_for_image_and_capture():
                         screenshot_path = screenshot_folder / f"screenshot_{timestamp}.png"
                         pyautogui.screenshot(screenshot_path)
                         perform_ocr_on_screenshot(screenshot_path)
-                        window_instance.after(40000, clear_gui())
                         break
 
-            time.sleep(0.5)
+            time.sleep(0.125)
         except Exception as e:
             print("Image not found in the region. Retrying")
             time.sleep(0.125)
@@ -389,13 +457,14 @@ def load_config(file_path):
 
     region = config.get('settings', 'region')
     battle10vs10 = config.getboolean('settings', 'battle10vs10')
-    return region, battle10vs10
+    timer = config.getfloat('settings', 'timer')
+    return region, battle10vs10, timer
 
 
 if __name__ == "__main__":
     app = QApplication([])
     config_file = 'config.ini'
-    region, battle10vs10 = load_config(config_file)
+    region, battle10vs10, timerconf = load_config(config_file)
     screenshots_folder = Path("./screenshotsmanual")
     if not screenshots_folder.exists():
         screenshots_folder.mkdir(parents=True, exist_ok=True)
