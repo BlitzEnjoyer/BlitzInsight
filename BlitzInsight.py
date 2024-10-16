@@ -21,8 +21,7 @@ import configparser
 
 
 
-model_path = r"ch_PP-OCRv4_rec_server_infer"
-ocr = PaddleOCR(rec_model_dir=model_path, det_db_score_mode='slow')
+ocr = PaddleOCR()
 values = []
 values2 = []
 api_call_count = 0
